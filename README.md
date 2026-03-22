@@ -12,14 +12,6 @@ One-script macOS terminal environment setup. Run on a fresh Mac, get a fully con
   <img src="assets/zsh.png" width="80" alt="Zsh">
   &nbsp;&nbsp;
   <img src="assets/starship.png" width="80" alt="Starship">
-  &nbsp;&nbsp;
-  <img src="assets/fnm.svg" width="80" alt="fnm">
-  &nbsp;&nbsp;
-  <img src="assets/bat.svg" width="80" alt="bat">
-  &nbsp;&nbsp;
-  <img src="assets/fzf.png" width="80" alt="fzf">
-  &nbsp;&nbsp;
-  <img src="assets/btop.png" width="80" alt="btop">
 </p>
 
 <p align="center">
