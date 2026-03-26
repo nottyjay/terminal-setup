@@ -275,13 +275,16 @@ case "$OS" in
         ;;
 esac
 
-MESLO_BASE_URL="https://github.com/romkatv/powerlevel10k-media/raw/master"
 MESLO_FONTS=(
     "MesloLGS NF Regular.ttf"
     "MesloLGS NF Bold.ttf"
     "MesloLGS NF Italic.ttf"
     "MesloLGS NF Bold Italic.ttf"
 )
+
+# Font source: bundled in repo (fonts/) — no download needed
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FONT_SRC_DIR="$SCRIPT_DIR/fonts"
 
 FONT_INSTALLED=true
 for font in "${MESLO_FONTS[@]}"; do
@@ -291,11 +294,14 @@ done
 if $FONT_INSTALLED; then
     success "MesloLGS NF fonts already installed"
 else
-    info "Downloading MesloLGS NF fonts..."
+    info "Installing MesloLGS NF fonts from repo..."
     mkdir -p "$FONT_DIR"
     for font in "${MESLO_FONTS[@]}"; do
-        encoded=$(echo "$font" | sed 's/ /%20/g')
-        run_cmd curl -fsSL "$MESLO_BASE_URL/$encoded" -o "$FONT_DIR/$font"
+        if [[ -f "$FONT_SRC_DIR/$font" ]]; then
+            run_cmd cp "$FONT_SRC_DIR/$font" "$FONT_DIR/$font"
+        else
+            warn "Font not found in repo: $font — skipping"
+        fi
     done
     # Rebuild font cache on Linux
     if [[ "$OS" == "debian" || "$OS" == "wsl" ]]; then
