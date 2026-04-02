@@ -38,6 +38,15 @@ setopt HIST_IGNORE_SPACE
 setopt SHARE_HISTORY
 setopt INC_APPEND_HISTORY
 
+# ─── History prefix search (↑/↓) ─────────────────────────────────────
+# up-line-or-beginning-search: cursor stays at prefix position,
+# matched tail shown as gray autosuggestion — type more to narrow.
+autoload -U up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey '^[[A' up-line-or-beginning-search
+bindkey '^[[B' down-line-or-beginning-search
+
 # ─── fzf ─────────────────────────────────────────────────────────────
 if [[ -f ~/.fzf.zsh ]]; then
     source ~/.fzf.zsh
