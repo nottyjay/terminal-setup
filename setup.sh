@@ -2,7 +2,7 @@
 #
 # terminal-setup — One-script terminal environment setup
 #
-# Platforms: macOS, Debian/Ubuntu, Windows (via WSL)
+# Platforms: macOS, Debian/Ubuntu, Arch Linux, Windows (via WSL)
 #
 # Stack: Ghostty + (Fish or Zsh) + Starship + Nerd Font (MesloLGS)
 # Tools: bat, eza, fd, ripgrep, btop, zoxide, jq, tldr, delta, lazygit, fzf
@@ -70,9 +70,10 @@ detect_os() {
             echo "macos"
             ;;
         Linux)
-            # Check if running inside WSL
             if grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then
                 echo "wsl"
+            elif grep -qi 'arch' /etc/os-release 2>/dev/null; then
+                echo "arch"
             elif [[ -f /etc/debian_version ]] || grep -qi 'debian\|ubuntu' /etc/os-release 2>/dev/null; then
                 echo "debian"
             else
@@ -97,6 +98,9 @@ case "$OS" in
     debian)
         info "Detected ${BOLD}Debian/Ubuntu Linux${NC}"
         ;;
+    arch)
+        info "Detected ${BOLD}Arch Linux${NC}"
+        ;;
     wsl)
         info "Detected ${BOLD}Windows WSL${NC} (Debian/Ubuntu layer)"
         ;;
@@ -104,7 +108,7 @@ case "$OS" in
         error "Native Windows (MINGW/MSYS/Cygwin) is not supported.\n  Please install WSL: https://learn.microsoft.com/en-us/windows/wsl/install\n  Then run this script inside WSL."
         ;;
     *)
-        error "Unsupported OS: $(uname -s)\n  This script supports macOS, Debian/Ubuntu, and Windows WSL."
+        error "Unsupported OS: $(uname -s)\n  This script supports macOS, Debian/Ubuntu, Arch Linux, and Windows WSL."
         ;;
 esac
 
@@ -166,6 +170,14 @@ pkg_install() {
             info "Installing $pkg..."
             run_cmd sudo apt-get install -y "$pkg"
             ;;
+        arch)
+            if pacman -Qi "$pkg" &>/dev/null; then
+                success "$pkg already installed"
+                return 0
+            fi
+            info "Installing $pkg..."
+            run_cmd sudo pacman -S --noconfirm "$pkg"
+            ;;
     esac
     success "$pkg installed"
 }
@@ -211,13 +223,22 @@ case "$OS" in
     debian|wsl)
         info "Updating apt package index..."
         run_cmd sudo apt-get update
-        # Ensure basic build tools are available
         pkg_install "curl"
         pkg_install "git"
         pkg_install "wget"
         pkg_install "unzip"
         pkg_install "build-essential"
         success "apt package manager ready"
+        ;;
+    arch)
+        info "Updating pacman package database..."
+        run_cmd sudo pacman -Sy
+        pkg_install "curl"
+        pkg_install "git"
+        pkg_install "wget"
+        pkg_install "unzip"
+        pkg_install "base-devel"
+        success "pacman package manager ready"
         ;;
 esac
 
@@ -238,7 +259,6 @@ case "$OS" in
         fi
         ;;
     debian)
-        # Ghostty on Linux: check if already installed, otherwise try snap/flatpak or skip
         if has_cmd ghostty; then
             success "Ghostty already installed"
         else
@@ -246,6 +266,19 @@ case "$OS" in
             echo -e "  Options to install Ghostty on Linux:"
             echo -e "    • Snap:    ${BOLD}sudo snap install ghostty${NC}"
             echo -e "    • Build:   ${BOLD}https://ghostty.org/docs/install/build${NC}"
+            echo -e "    • Or use any other terminal (kitty, alacritty, etc.)"
+            echo ""
+            info "Skipping Ghostty installation — install it manually if desired."
+        fi
+        ;;
+    arch)
+        if has_cmd ghostty; then
+            success "Ghostty already installed"
+        else
+            warn "Ghostty is available in AUR."
+            echo -e "  Install with AUR helper:"
+            echo -e "    • ${BOLD}yay -S ghostty${NC}"
+            echo -e "    • ${BOLD}paru -S ghostty${NC}"
             echo -e "    • Or use any other terminal (kitty, alacritty, etc.)"
             echo ""
             info "Skipping Ghostty installation — install it manually if desired."
@@ -270,7 +303,7 @@ case "$OS" in
     macos)
         FONT_DIR="$HOME/Library/Fonts"
         ;;
-    debian|wsl)
+    debian|arch|wsl)
         FONT_DIR="$HOME/.local/share/fonts"
         ;;
 esac
@@ -303,8 +336,7 @@ else
             warn "Font not found in repo: $font — skipping"
         fi
     done
-    # Rebuild font cache on Linux
-    if [[ "$OS" == "debian" || "$OS" == "wsl" ]]; then
+    if [[ "$OS" == "debian" || "$OS" == "arch" || "$OS" == "wsl" ]]; then
         if has_cmd fc-cache; then
             run_cmd fc-cache -fv "$FONT_DIR"
         fi
@@ -451,9 +483,71 @@ install_shell_linux() {
     fi
 }
 
+install_shell_arch() {
+    if [[ "$SHELL_CHOICE" == "fish" ]]; then
+        if ! has_cmd fish; then
+            info "Installing Fish..."
+            run_cmd sudo pacman -S --noconfirm fish
+            success "Fish installed"
+        else
+            success "Fish already installed"
+        fi
+
+        FISH_PATH="$(which fish)"
+        if ! grep -qxF "$FISH_PATH" /etc/shells 2>/dev/null; then
+            info "Adding Fish to /etc/shells..."
+            echo "$FISH_PATH" | sudo tee -a /etc/shells >/dev/null
+        fi
+
+        if [[ "$SHELL" != "$FISH_PATH" ]]; then
+            info "Setting Fish as default shell..."
+            run_cmd chsh -s "$FISH_PATH"
+            success "Default shell changed to Fish"
+        else
+            success "Fish is already the default shell"
+        fi
+    else
+        if ! has_cmd zsh; then
+            info "Installing Zsh..."
+            run_cmd sudo pacman -S --noconfirm zsh
+            success "Zsh installed"
+        else
+            success "Zsh already installed"
+        fi
+
+        local ZSH_PLUGINS_DIR="/usr/share"
+
+        if [[ -f "$ZSH_PLUGINS_DIR/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh" ]]; then
+            success "zsh-autosuggestions already installed"
+        else
+            info "Installing zsh-autosuggestions..."
+            run_cmd sudo pacman -S --noconfirm zsh-autosuggestions
+            success "zsh-autosuggestions installed"
+        fi
+
+        if [[ -f "$ZSH_PLUGINS_DIR/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]]; then
+            success "zsh-syntax-highlighting already installed"
+        else
+            info "Installing zsh-syntax-highlighting..."
+            run_cmd sudo pacman -S --noconfirm zsh-syntax-highlighting
+            success "zsh-syntax-highlighting installed"
+        fi
+
+        ZSH_PATH="$(which zsh)"
+        if [[ "$SHELL" != "$ZSH_PATH" ]]; then
+            info "Setting Zsh as default shell..."
+            run_cmd chsh -s "$ZSH_PATH"
+            success "Default shell changed to Zsh"
+        else
+            success "Zsh is already the default shell"
+        fi
+    fi
+}
+
 case "$OS" in
     macos)  install_shell_macos ;;
     debian|wsl) install_shell_linux ;;
+    arch) install_shell_arch ;;
 esac
 
 # ─── Step 5: CLI Tools ──────────────────────────────────────────────
@@ -476,7 +570,6 @@ install_cli_tools_macos() {
 }
 
 install_cli_tools_linux() {
-    # Tools available directly from apt (on modern Debian/Ubuntu)
     local APT_TOOLS=(bat fd-find ripgrep jq fzf)
 
     for tool in "${APT_TOOLS[@]}"; do
@@ -489,7 +582,6 @@ install_cli_tools_linux() {
         fi
     done
 
-    # btop — not in apt on older Debian/Ubuntu, use snap as fallback
     if has_cmd btop; then
         success "btop already installed"
     else
@@ -505,7 +597,6 @@ install_cli_tools_linux() {
         fi
     fi
 
-    # zoxide — not in apt on older Debian/Ubuntu, use bundled installer as fallback
     if has_cmd zoxide; then
         success "zoxide already installed"
     else
@@ -521,7 +612,6 @@ install_cli_tools_linux() {
         fi
     fi
 
-    # bat is installed as 'batcat' on Debian/Ubuntu — create symlink
     if has_cmd batcat && ! has_cmd bat; then
         info "Creating symlink: batcat → bat"
         mkdir -p "$HOME/.local/bin"
@@ -529,7 +619,6 @@ install_cli_tools_linux() {
         success "bat symlink created"
     fi
 
-    # fd is installed as 'fdfind' on Debian/Ubuntu — create symlink
     if has_cmd fdfind && ! has_cmd fd; then
         info "Creating symlink: fdfind → fd"
         mkdir -p "$HOME/.local/bin"
@@ -537,7 +626,6 @@ install_cli_tools_linux() {
         success "fd symlink created"
     fi
 
-    # Helper: install bundled binary from bin/linux-x86_64/
     install_bundled_bin() {
         local name="$1"
         if [[ -f "$SCRIPT_DIR/bin/linux-x86_64/$name" ]]; then
@@ -549,7 +637,6 @@ install_cli_tools_linux() {
         return 1
     }
 
-    # eza — try apt first, then bundled binary
     if has_cmd eza; then
         success "eza already installed"
     else
@@ -561,7 +648,6 @@ install_cli_tools_linux() {
         fi
     fi
 
-    # tldr (tealdeer) — try apt first, then bundled binary
     if has_cmd tldr; then
         success "tldr already installed"
     else
@@ -573,7 +659,6 @@ install_cli_tools_linux() {
         fi
     fi
 
-    # git-delta — try apt first, then bundled binary
     if has_cmd delta; then
         success "git-delta already installed"
     else
@@ -585,7 +670,6 @@ install_cli_tools_linux() {
         fi
     fi
 
-    # lazygit — try apt first, then bundled binary
     if has_cmd lazygit; then
         success "lazygit already installed"
     else
@@ -597,15 +681,41 @@ install_cli_tools_linux() {
         fi
     fi
 
-    # Ensure ~/.local/bin is in PATH
     if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
         export PATH="$HOME/.local/bin:$PATH"
+    fi
+}
+
+install_cli_tools_arch() {
+    local PACMAN_TOOLS=(bat fd ripgrep jq fzf btop zoxide eza git-delta lazygit)
+
+    for tool in "${PACMAN_TOOLS[@]}"; do
+        if pacman -Qi "$tool" &>/dev/null; then
+            success "$tool already installed"
+        else
+            info "Installing $tool..."
+            run_cmd sudo pacman -S --noconfirm "$tool"
+            success "$tool installed"
+        fi
+    done
+
+    if has_cmd tldr; then
+        success "tldr already installed"
+    else
+        info "Installing tldr (tealdeer)..."
+        if pacman -Qi tealdeer &>/dev/null; then
+            success "tldr already installed"
+        else
+            run_cmd sudo pacman -S --noconfirm tealdeer
+            success "tldr installed"
+        fi
     fi
 }
 
 case "$OS" in
     macos)      install_cli_tools_macos ;;
     debian|wsl) install_cli_tools_linux ;;
+    arch)       install_cli_tools_arch ;;
 esac
 
 # ─── Step 6: Starship Prompt ────────────────────────────────────────
@@ -630,6 +740,10 @@ else
             else
                 run_cmd sh -c "$(curl -fsSL https://starship.rs/install.sh)" -- --yes
             fi
+            ;;
+        arch)
+            info "Installing Starship..."
+            run_cmd sudo pacman -S --noconfirm starship
             ;;
     esac
     success "Starship installed"
@@ -668,6 +782,14 @@ else
                 info "Installing fnm via official installer..."
                 run_cmd bash -c "$(curl -fsSL https://fnm.vercel.app/install)" -- --skip-shell
                 export PATH="$HOME/.local/share/fnm:$PATH"
+                ;;
+            arch)
+                info "Installing fnm..."
+                if pacman -Qi fnm &>/dev/null; then
+                    success "fnm already installed"
+                else
+                    run_cmd sudo pacman -S --noconfirm fnm
+                fi
                 ;;
         esac
         success "fnm installed"
@@ -711,13 +833,16 @@ else
                     run_cmd sudo cp "$SCRIPT_DIR/bin/linux-x86_64/zellij" /usr/local/bin/zellij
                     run_cmd sudo chmod +x /usr/local/bin/zellij
                 else
-                    # Use official installer
                     if $DRY_RUN; then
                         echo -e "${YELLOW}[DRY-RUN]${NC} curl -L https://zellij.dev/launch | bash"
                     else
                         curl -L https://zellij.dev/launch | bash
                     fi
                 fi
+                ;;
+            arch)
+                info "Installing Zellij..."
+                run_cmd sudo pacman -S --noconfirm zellij
                 ;;
         esac
         success "Zellij installed"
@@ -739,7 +864,7 @@ deploy_ghostty_config() {
         macos)
             ghostty_config_dir="$HOME/Library/Application Support/com.mitchellh.ghostty"
             ;;
-        debian)
+        debian|arch)
             ghostty_config_dir="$HOME/.config/ghostty"
             ;;
         wsl)
@@ -757,12 +882,11 @@ deploy_ghostty_config() {
         warn "Backed up existing Ghostty config"
     fi
 
-    # macOS uses config.ghostty, Linux uses config
     case "$OS" in
         macos)
             run_cmd cp "$CONFIGS_DIR/ghostty.config" "$ghostty_config_dir/config.ghostty"
             ;;
-        debian|wsl)
+        debian|arch|wsl)
             run_cmd cp "$CONFIGS_DIR/ghostty.config" "$ghostty_config_dir/config"
             ;;
     esac
@@ -791,21 +915,16 @@ if [[ "$SHELL_CHOICE" == "fish" ]]; then
         warn "Backed up existing config.fish"
     fi
 
-    # Deploy platform-appropriate fish config
     if [[ "$OS" == "macos" ]]; then
         run_cmd cp "$CONFIGS_DIR/config.fish" "$FISH_CONFIG_DIR/config.fish"
     else
-        # For Linux: use modified config without Homebrew paths
         run_cmd cp "$CONFIGS_DIR/config.fish" "$FISH_CONFIG_DIR/config.fish"
-        # Patch: replace Homebrew paths with Linux equivalents
         sed -i 's|/opt/homebrew/bin/starship|starship|g' "$FISH_CONFIG_DIR/config.fish"
         sed -i 's|fish_add_path /opt/homebrew/bin|# PATH: system paths are used on Linux|g' "$FISH_CONFIG_DIR/config.fish"
-        # Fix pnpm path for Linux
         sed -i 's|\$HOME/Library/pnpm|\$HOME/.local/share/pnpm|g' "$FISH_CONFIG_DIR/config.fish"
     fi
     success "Fish config deployed"
 
-    # Fish abbreviations
     if ! $DRY_RUN; then
         info "Setting up Fish abbreviations..."
         fish -c '
@@ -824,7 +943,6 @@ if [[ "$SHELL_CHOICE" == "fish" ]]; then
         info "[DRY-RUN] Would set Fish abbreviations"
     fi
 
-    # Zoxide + fzf init for fish
     if ! grep -qF "zoxide" "$FISH_CONFIG_DIR/config.fish" 2>/dev/null; then
         info "Adding zoxide + fzf init to fish config..."
         cat >> "$FISH_CONFIG_DIR/config.fish" << 'FISHEOF'
@@ -846,8 +964,7 @@ FISHEOF
         success "Zoxide init already present"
     fi
 
-    # Add ~/.local/bin to fish PATH on Linux
-    if [[ "$OS" == "debian" || "$OS" == "wsl" ]]; then
+    if [[ "$OS" == "debian" || "$OS" == "arch" || "$OS" == "wsl" ]]; then
         if ! grep -qF '.local/bin' "$FISH_CONFIG_DIR/config.fish" 2>/dev/null; then
             echo '' >> "$FISH_CONFIG_DIR/config.fish"
             echo '# Local bin (Linux)' >> "$FISH_CONFIG_DIR/config.fish"
@@ -855,7 +972,6 @@ FISHEOF
         fi
     fi
 else
-    # Zsh config
     if [[ -f "$HOME/.zshrc" ]]; then
         run_cmd cp "$HOME/.zshrc" "$HOME/.zshrc.bak.$(date +%s)"
         warn "Backed up existing .zshrc"
@@ -864,23 +980,26 @@ else
     if [[ "$OS" == "macos" ]]; then
         run_cmd cp "$CONFIGS_DIR/.zshrc" "$HOME/.zshrc"
     else
-        # Deploy and patch for Linux
         run_cmd cp "$CONFIGS_DIR/.zshrc" "$HOME/.zshrc"
 
-        # Patch Homebrew paths → Linux paths
         sed -i 's|export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:\$PATH"|# PATH — system paths on Linux\nexport PATH="$HOME/.local/bin:$PATH"|' "$HOME/.zshrc"
 
-        # Patch zsh plugin source paths
-        sed -i 's|/opt/homebrew/share/zsh-syntax-highlighting/|/usr/share/zsh-syntax-highlighting/|g' "$HOME/.zshrc"
-        sed -i 's|/opt/homebrew/share/zsh-autosuggestions/|/usr/share/zsh-autosuggestions/|g' "$HOME/.zshrc"
-        sed -i 's|/opt/homebrew/share/zsh-completions|/usr/share/zsh-completions|g' "$HOME/.zshrc"
+        if [[ "$OS" == "arch" ]]; then
+            sed -i 's|/opt/homebrew/share/zsh-syntax-highlighting/|/usr/share/zsh/plugins/zsh-syntax-highlighting/|g' "$HOME/.zshrc"
+            sed -i 's|/opt/homebrew/share/zsh-autosuggestions/|/usr/share/zsh/plugins/zsh-autosuggestions/|g' "$HOME/.zshrc"
+            sed -i 's|/opt/homebrew/share/zsh-completions|/usr/share/zsh/plugins/zsh-completions|g' "$HOME/.zshrc"
+        else
+            sed -i 's|/opt/homebrew/share/zsh-syntax-highlighting/|/usr/share/zsh-syntax-highlighting/|g' "$HOME/.zshrc"
+            sed -i 's|/opt/homebrew/share/zsh-autosuggestions/|/usr/share/zsh-autosuggestions/|g' "$HOME/.zshrc"
+            sed -i 's|/opt/homebrew/share/zsh-completions|/usr/share/zsh-completions|g' "$HOME/.zshrc"
+        fi
 
-        # Patch pnpm path for Linux
         sed -i 's|\$HOME/Library/pnpm|\$HOME/.local/share/pnpm|g' "$HOME/.zshrc"
 
-        # Add fnm path for Linux (installed to ~/.local/share/fnm)
-        if ! grep -qF '.local/share/fnm' "$HOME/.zshrc" 2>/dev/null; then
-            sed -i '/# ─── fnm/i # fnm binary path (Linux)\nexport PATH="$HOME/.local/share/fnm:$PATH"\n' "$HOME/.zshrc"
+        if [[ "$OS" == "debian" || "$OS" == "wsl" ]]; then
+            if ! grep -qF '.local/share/fnm' "$HOME/.zshrc" 2>/dev/null; then
+                sed -i '/# ─── fnm/i # fnm binary path (Linux)\nexport PATH="$HOME/.local/share/fnm:$PATH"\n' "$HOME/.zshrc"
+            fi
         fi
     fi
     success "Zsh config deployed"
@@ -917,7 +1036,7 @@ case "$OS" in
     macos)
         echo -e "    👻 Ghostty              — terminal emulator"
         ;;
-    debian)
+    debian|arch)
         echo -e "    👻 Ghostty              — terminal (install separately on Linux)"
         ;;
     wsl)
